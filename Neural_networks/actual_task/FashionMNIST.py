@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import multiprocessing
 import time
+import matplotlib.pyplot as plt
 
 # This is the key addition for Windows multiprocessing
 if __name__ == '__main__':
@@ -25,7 +26,7 @@ if __name__ == '__main__':
         print(f"Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
     learning_rate = 0.001
-    num_epochs = 100
+    num_epochs = 40
     batch_size = 256  # Increased from 128 for better GPU utilization
 
     # Define transformations for the data
@@ -39,14 +40,14 @@ if __name__ == '__main__':
     ])
 
     train_dataset = torchvision.datasets.FashionMNIST(root='./data',
-                                               train=True,
-                                               transform=transform,
-                                               download=True)
+                                                      train=True,
+                                                      transform=transform,
+                                                      download=True)
 
     test_dataset = torchvision.datasets.FashionMNIST(root='./data',
-                                              train=False,
-                                              transform=transform,
-                                              download=True)
+                                                     train=False,
+                                                     transform=transform,
+                                                     download=True)
 
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=batch_size,
@@ -116,6 +117,10 @@ if __name__ == '__main__':
     # Time tracking
     start_time = time.time()
 
+    train_losses = []
+    test_losses = []
+    test_accuracies = []
+
     for epoch in range(num_epochs):
         epoch_start = time.time()
         epoch_loss = 0.0
@@ -150,8 +155,31 @@ if __name__ == '__main__':
 
         epoch_time = time.time() - epoch_start
         average_epoch_loss = epoch_loss / n_total_steps
-        print(
-            f"Epoch [{epoch + 1}/{num_epochs}], Average Training Loss: {average_epoch_loss:.4f}, Time: {epoch_time:.2f}s")
+        train_losses.append(average_epoch_loss)
+        # print(
+        #     f"Epoch [{epoch + 1}/{num_epochs}], Average Training Loss: {average_epoch_loss:.4f}, Time: {epoch_time:.2f}s")
+
+        # Model eval for each epoch for further model analisys
+        model.eval()
+        with torch.no_grad():
+            n_correct = 0
+            n_samples = 0
+            test_loss = 0.0
+            for images, labels in test_loader:
+                images = images.to(device, non_blocking=True)
+                labels = labels.to(device, non_blocking=True)
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+                test_loss += loss.item()
+                _, predicted_labels = torch.max(outputs.data, 1) # Get predictions
+                n_samples += labels.size(0)
+                n_correct += (predicted_labels == labels).sum().item()
+
+            average_test_loss = test_loss / len(test_loader)
+            accuracy = 100.0 * n_correct / n_samples
+            test_losses.append(average_test_loss)
+            test_accuracies.append(accuracy)
+            print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {average_epoch_loss:.4f}, Test Loss: {average_test_loss:.4f}, Test Acc: {accuracy:.2f}%")
 
     total_time = time.time() - start_time
     print(f"\n--- Training finished in {total_time:.2f} seconds ---")
@@ -179,5 +207,33 @@ if __name__ == '__main__':
 
         average_test_loss = test_loss / len(test_loader)
         accuracy = 100.0 * n_correct / n_samples
+
+        test_losses.append(average_test_loss)
+        test_accuracies.append(accuracy)
         print(f'Average Test Loss: {average_test_loss:.4f}')
         print(f'Accuracy on Test Set: {accuracy:.2f} %')
+
+    # Plots
+    plt.figure(figsize=(15, 5))
+
+    # Plot 1: Loss comparison
+    plt.subplot(1, 3, 1)
+    plt.plot(train_losses, label='Training Loss', marker='o')
+    plt.plot(test_losses, label='Test Loss', marker='o')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title('Training vs Test Loss')
+    plt.grid(True)
+
+    # Plot 2: Test accuracy przez epoki
+    plt.subplot(1, 3, 2)
+    plt.plot(test_accuracies, label='Test Accuracy', marker='o', color='green')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.legend()
+    plt.title('Test Accuracy per Epoch')
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
