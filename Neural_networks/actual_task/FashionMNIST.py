@@ -70,10 +70,10 @@ if __name__ == '__main__':
             super(MNIST_Net, self).__init__()
             self.flatten = nn.Flatten()  # Flattens the 28x28 image to a 784 vector
             self.layer1 = nn.Linear(input_dim, hidden1_dim)
-            self.activation1 = nn.ReLU()
+            self.activation1 = nn.LeakyReLU()
             self.dropout1 = nn.Dropout(0.2)
             self.layer2 = nn.Linear(hidden1_dim, hidden2_dim)
-            self.activation2 = nn.ReLU()
+            self.activation2 = nn.LeakyReLU()
             self.dropout2 = nn.Dropout(0.2)
             self.layer3 = nn.Linear(hidden2_dim, output_dim)
 
