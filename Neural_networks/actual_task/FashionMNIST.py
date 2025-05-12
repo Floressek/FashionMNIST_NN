@@ -25,7 +25,7 @@ if __name__ == '__main__':
         print(f"Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
     learning_rate = 0.001
-    num_epochs = 20
+    num_epochs = 100
     batch_size = 256  # Increased from 128 for better GPU utilization
 
     # Define transformations for the data
@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
 
     class MNIST_Net(nn.Module):
-        def __init__(self, input_dim=28 * 28, hidden1_dim=512, hidden2_dim=256, output_dim=10):
+        def __init__(self, input_dim=28 * 28, hidden1_dim=1024, hidden2_dim=256, output_dim=10):
             super(MNIST_Net, self).__init__()
             self.flatten = nn.Flatten()  # Flattens the 28x28 image to a 784 vector
             self.layer1 = nn.Linear(input_dim, hidden1_dim)
