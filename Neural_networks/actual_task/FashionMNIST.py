@@ -25,28 +25,37 @@ if __name__ == '__main__':
         print(f"CUDA Version: {torch.version.cuda}")
         print(f"Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-    learning_rate = 0.0005
-    num_epochs = 40
-    batch_size = 256  # Increased from 128 for better GPU utilization
+    learning_rate = 0.0003
+    num_epochs = 100
+    batch_size = 512  # Increased from 128 for better GPU utilization
 
     # Define transformations for the data
     # 1. ToTensor(): Converts PIL Image or numpy.ndarray (H x W x C) in the range [0, 255]
     #                to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0].
     # 2. Normalize(): Normalizes a tensor image with mean and standard deviation.
     #                 (mean,), (std,) for grayscale images. MNIST mean/std are approx known.
-    transform = transforms.Compose([
+
+    # Data augmentation
+    transform_train = transforms.Compose([
+        transforms.RandomRotation(10),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize((0.2860,), (0.3530,))
+    ])
+
+    transform_test = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.2860,), (0.3530,))
     ])
 
     train_dataset = torchvision.datasets.FashionMNIST(root='./data',
                                                       train=True,
-                                                      transform=transform,
+                                                      transform=transform_train,
                                                       download=True)
 
     test_dataset = torchvision.datasets.FashionMNIST(root='./data',
                                                      train=False,
-                                                     transform=transform,
+                                                     transform=transform_test,
                                                      download=True)
 
     train_loader = DataLoader(dataset=train_dataset,
@@ -71,13 +80,13 @@ if __name__ == '__main__':
             self.flatten = nn.Flatten()  # Flattens the 28x28 image to a 784 vector
             self.layer1 = nn.Linear(input_dim, hidden1_dim)
             self.activation1 = nn.LeakyReLU()
-            self.dropout1 = nn.Dropout(0.2)
+            self.dropout1 = nn.Dropout(0.25)
             self.layer2 = nn.Linear(hidden1_dim, hidden2_dim)
             self.activation2 = nn.LeakyReLU()
-            self.dropout2 = nn.Dropout(0.2)
+            self.dropout2 = nn.Dropout(0.25)
             self.layer3 = nn.Linear(hidden2_dim, hidden3_dim)
             self.activation3 = nn.LeakyReLU()
-            self.dropout3 = nn.Dropout(0.2)
+            self.dropout3 = nn.Dropout(0.15)
             self.layer4 = nn.Linear(hidden3_dim, output_dim)
 
         def forward(self, x):
