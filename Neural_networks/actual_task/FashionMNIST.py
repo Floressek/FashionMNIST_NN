@@ -25,7 +25,7 @@ if __name__ == '__main__':
         print(f"CUDA Version: {torch.version.cuda}")
         print(f"Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-    learning_rate = 0.001
+    learning_rate = 0.0005
     num_epochs = 40
     batch_size = 256  # Increased from 128 for better GPU utilization
 
@@ -52,21 +52,21 @@ if __name__ == '__main__':
     train_loader = DataLoader(dataset=train_dataset,
                               batch_size=batch_size,
                               shuffle=True,
-                              num_workers=4,  # Reduce to avoid overhead
+                              num_workers=8,  # Reduce to avoid overhead
                               pin_memory=True,
                               persistent_workers=True,  # Reuse workers
-                              prefetch_factor=2)  # Prefetch more batches
+                              prefetch_factor=4)  # Prefetch more batches
 
     test_loader = DataLoader(dataset=test_dataset,
                              batch_size=batch_size,
                              shuffle=False,
-                             num_workers=2,
+                             num_workers=4,
                              pin_memory=True,
                              persistent_workers=True)
 
 
     class MNIST_Net(nn.Module):
-        def __init__(self, input_dim=28 * 28, hidden1_dim=1024, hidden2_dim=256, output_dim=10):
+        def __init__(self, input_dim=28 * 28, hidden1_dim=1024, hidden2_dim = 512, hidden3_dim=256, output_dim=10):
             super(MNIST_Net, self).__init__()
             self.flatten = nn.Flatten()  # Flattens the 28x28 image to a 784 vector
             self.layer1 = nn.Linear(input_dim, hidden1_dim)
@@ -75,7 +75,10 @@ if __name__ == '__main__':
             self.layer2 = nn.Linear(hidden1_dim, hidden2_dim)
             self.activation2 = nn.LeakyReLU()
             self.dropout2 = nn.Dropout(0.2)
-            self.layer3 = nn.Linear(hidden2_dim, output_dim)
+            self.layer3 = nn.Linear(hidden2_dim, hidden3_dim)
+            self.activation3 = nn.LeakyReLU()
+            self.dropout3 = nn.Dropout(0.2)
+            self.layer4 = nn.Linear(hidden3_dim, output_dim)
 
         def forward(self, x):
             # x shape: [batch_size, 1, 28, 28]
@@ -86,7 +89,10 @@ if __name__ == '__main__':
             x = self.layer2(x)
             x = self.activation2(x)
             x = self.dropout2(x)
-            logits = self.layer3(x)
+            x = self.layer3(x)
+            x = self.activation3(x)
+            x = self.dropout3(x)
+            logits = self.layer4(x)
             return logits
 
 
