@@ -26,19 +26,14 @@ if __name__ == '__main__':
         print(f"Memory available: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
     learning_rate = 0.0003
-    num_epochs = 100
+    num_epochs = 250
     batch_size = 512  # Increased from 128 for better GPU utilization
-
-    # Define transformations for the data
-    # 1. ToTensor(): Converts PIL Image or numpy.ndarray (H x W x C) in the range [0, 255]
-    #                to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0].
-    # 2. Normalize(): Normalizes a tensor image with mean and standard deviation.
-    #                 (mean,), (std,) for grayscale images. MNIST mean/std are approx known.
-
     # Data augmentation
     transform_train = transforms.Compose([
         transforms.RandomRotation(10),
-        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomHorizontalFlip(p=0.1),  # Zmniejszone z 0.5 dla Fashion-MNIST
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), shear=8),  # Zmniejszone parametry
+        transforms.RandomPerspective(distortion_scale=0.1, p=0.2),  # Nowa augmentacja
         transforms.ToTensor(),
         transforms.Normalize((0.2860,), (0.3530,))
     ])
@@ -75,23 +70,32 @@ if __name__ == '__main__':
 
 
     class MNIST_Net(nn.Module):
-        def __init__(self, input_dim=28 * 28, hidden1_dim=1024, hidden2_dim = 512, hidden3_dim=256, output_dim=10):
+        def __init__(self, input_dim=28 * 28, hidden_top_dim=1536, hidden1_dim=1024, hidden2_dim = 512, hidden3_dim=256, hidden4_dim=128, output_dim=10):
             super(MNIST_Net, self).__init__()
             self.flatten = nn.Flatten()  # Flattens the 28x28 image to a 784 vector
-            self.layer1 = nn.Linear(input_dim, hidden1_dim)
-            self.activation1 = nn.LeakyReLU()
+            self.layer0 = nn.Linear(input_dim, hidden_top_dim)
+            self.activation0 = nn.GELU()
+            self.dropout0 = nn.Dropout(0.3)
+            self.layer1 = nn.Linear(hidden_top_dim, hidden1_dim)
+            self.activation1 = nn.GELU()
             self.dropout1 = nn.Dropout(0.25)
             self.layer2 = nn.Linear(hidden1_dim, hidden2_dim)
-            self.activation2 = nn.LeakyReLU()
+            self.activation2 = nn.GELU()
             self.dropout2 = nn.Dropout(0.25)
             self.layer3 = nn.Linear(hidden2_dim, hidden3_dim)
-            self.activation3 = nn.LeakyReLU()
+            self.activation3 = nn.GELU()
             self.dropout3 = nn.Dropout(0.15)
-            self.layer4 = nn.Linear(hidden3_dim, output_dim)
+            self.layer4 = nn.Linear(hidden3_dim, hidden4_dim)
+            self.activation4 = nn.GELU()
+            self.dropout4 = nn.Dropout(0.10)
+            self.layer5 = nn.Linear(hidden4_dim, output_dim)
 
         def forward(self, x):
             # x shape: [batch_size, 1, 28, 28]
             x = self.flatten(x)  # Shape becomes: [batch_size, 784]
+            x = self.layer0(x)
+            x = self.activation0(x)
+            x = self.dropout0(x)
             x = self.layer1(x)
             x = self.activation1(x)
             x = self.dropout1(x)
@@ -101,7 +105,10 @@ if __name__ == '__main__':
             x = self.layer3(x)
             x = self.activation3(x)
             x = self.dropout3(x)
-            logits = self.layer4(x)
+            x = self.layer4(x)
+            x = self.activation4(x)
+            x = self.dropout4(x)
+            logits = self.layer5(x)
             return logits
 
 
@@ -112,10 +119,50 @@ if __name__ == '__main__':
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
+    # Label Smoothing Loss - zapobiega overconfidence
+    class LabelSmoothingLoss(nn.Module):
+        def __init__(self, num_classes=10, smoothing=0.1):
+            super(LabelSmoothingLoss, self).__init__()
+            self.smoothing = smoothing
+            self.cls = num_classes
 
-    # For multi-class classification, CrossEntropyLoss is standard.
-    criterion = nn.CrossEntropyLoss()
+        def forward(self, pred, target):
+            pred = pred.log_softmax(dim=-1)
+            with torch.no_grad():
+                true_dist = torch.zeros_like(pred)
+                true_dist.fill_(self.smoothing / (self.cls - 1))
+                true_dist.scatter_(1, target.data.unsqueeze(1), 1.0 - self.smoothing)
+            return torch.mean(torch.sum(-true_dist * pred, dim=-1))
+
+    # ULEPSZONA KONFIGURACJA OPTYMALIZATORA
+    criterion = LabelSmoothingLoss(smoothing=0.1)  # Zamiast CrossEntropyLoss
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
+
+    # Cosine Annealing Scheduler - smooth learning rate decay
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
+    # Early Stopping Implementation
+    class EarlyStopping:
+        def __init__(self, patience=12, min_delta=0.001):
+            self.patience = patience
+            self.min_delta = min_delta
+            self.counter = 0
+            self.best_loss = None
+
+        def __call__(self, val_loss):
+            if self.best_loss is None:
+                self.best_loss = val_loss
+            elif val_loss < self.best_loss - self.min_delta:
+                self.best_loss = val_loss
+                self.counter = 0
+            else:
+                self.counter += 1
+
+            if self.counter >= self.patience:
+                return True
+            return False
+
+    early_stopping = EarlyStopping(patience=15)
 
     # Warm up GPU
     print("\nWarming up GPU...")
@@ -135,6 +182,7 @@ if __name__ == '__main__':
     train_losses = []
     test_losses = []
     test_accuracies = []
+    learning_rates = []
 
     for epoch in range(num_epochs):
         epoch_start = time.time()
@@ -162,11 +210,21 @@ if __name__ == '__main__':
             # c. Update model parameters using computed gradients
             optimizer.step()
 
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
             epoch_loss += loss.item()
 
             # Print progress every 100 batches
             if (i + 1) % 100 == 0:
                 print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{len(train_loader)}], Loss: {loss.item():.4f}')
+
+        # Update learning rate
+        scheduler.step()
+
+        # Record learning rate
+        current_lr = scheduler.get_last_lr()[0]
+        learning_rates.append(current_lr)
 
         epoch_time = time.time() - epoch_start
         average_epoch_loss = epoch_loss / n_total_steps
@@ -194,6 +252,12 @@ if __name__ == '__main__':
             accuracy = 100.0 * n_correct / n_samples
             test_losses.append(average_test_loss)
             test_accuracies.append(accuracy)
+
+            # Early stopping check
+            if early_stopping(average_test_loss):
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+
             print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {average_epoch_loss:.4f}, Test Loss: {average_test_loss:.4f}, Test Acc: {accuracy:.2f}%")
 
     total_time = time.time() - start_time
